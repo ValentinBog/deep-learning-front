@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ model_config.name }} - Sistema de Diagnóstico por IA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-microscope me-2"></i>
+                Sistema de Diagnóstico por IA
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="{{ url_for('index') }}">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    Volver al Inicio
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Model Header -->
+    <section class="bg-gradient-primary py-4">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h1 class="text-white h3 mb-0">
+                        <i class="fas fa-microscope me-2"></i>
+                        {{ model_config.name }}
+                    </h1>
+                    <p class="text-white-50 mb-0">{{ model_config.description }}</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <div class="container py-5">
+        <div class="row g-4">
+            <!-- Upload Section -->
+            <div class="col-lg-6">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-upload me-2"></i>
+                            Cargar Imagen
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- File Upload Form -->
+                        <form id="uploadForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="imageFile" class="form-label">Seleccionar imagen de ecografía</label>
+                                <input type="file" class="form-control" id="imageFile" name="file" 
+                                       accept=".png,.jpg,.jpeg,.tiff,.bmp" required>
+                                <div class="form-text">
+                                    Formatos soportados: PNG, JPG, JPEG, TIFF, BMP (máx. 16MB)
+                                </div>
+                            </div>
+                            
+                            <!-- Image Preview -->
+                            <div id="imagePreview" class="mb-3" style="display: none;">
+                                <label class="form-label">Vista previa:</label>
+                                <div class="text-center">
+                                    <img id="previewImg" class="img-fluid rounded border" 
+                                         style="max-height: 300px;" alt="Vista previa">
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-success w-100" id="analyzeBtn">
+                                <i class="fas fa-brain me-2"></i>
+                                Analizar Imagen
+                            </button>
+                        </form>
+                        
+                        <!-- Loading -->
+                        <div id="loadingDiv" class="text-center py-4" style="display: none;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Analizando...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Procesando imagen con IA...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical Specifications -->
+                <div class="card shadow mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-cogs me-2"></i>
+                            Especificaciones Técnicas
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="fas fa-image text-primary me-2"></i>
+                                <strong>Tamaño de procesamiento:</strong> {{ model_config.input_size[0] }} × {{ model_config.input_size[1] }} píxeles
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-expand-arrows-alt text-primary me-2"></i>
+                                <strong>Tamaño original recomendado:</strong> {{ model_config.original_size[0] }} × {{ model_config.original_size[1] }} píxeles
+                            </li>
+                            <li class="mb-0">
+                                <i class="fas fa-microchip text-primary me-2"></i>
+                                <strong>Arquitectura:</strong> CNN 2D + CNN 1D con segmentación U-Net
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="col-lg-6">
+                <div class="card shadow">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Resultados del Análisis
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="noResults" class="text-center py-5 text-muted">
+                            <i class="fas fa-chart-line fa-3x mb-3 opacity-50"></i>
+                            <p>Los resultados aparecerán aquí después del análisis</p>
+                        </div>
+                        
+                        <div id="resultsDiv" style="display: none;">
+                            <!-- Processed Image -->
+                            <div class="mb-4">
+                                <h6 class="text-primary">Imagen Procesada:</h6>
+                                <div class="text-center">
+                                    <img id="processedImage" class="img-fluid rounded border" 
+                                         style="max-height: 200px;" alt="Imagen procesada">
+                                </div>
+                            </div>
+
+                            <!-- Multi-class Results -->
+                            <div class="mb-4">
+                                <h6 class="text-primary">Clasificación por Estadios:</h6>
+                                <div id="multiclassResults"></div>
+                            </div>
+
+                            <!-- Binary Classifications -->
+                            <div class="mb-3">
+                                <h6 class="text-primary">Clasificaciones Binarias:</h6>
+                                <div id="binaryResults"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Display -->
+                <div id="errorDiv" class="alert alert-danger mt-3" style="display: none;">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="errorMessage"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Categories Information -->
+        <div class="row mt-5">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Información sobre las Categorías de Diagnóstico
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            {% for category, description in model_config.categories.items() %}
+                            <div class="col-md-6 col-xl-4">
+                                <div class="border rounded p-3 h-100">
+                                    <h6 class="text-primary">{{ category }}</h6>
+                                    <p class="small text-muted mb-0">{{ description }}</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white py-4 mt-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Sistema de Diagnóstico por IA</h6>
+                    <p class="text-muted small mb-0">
+                        Desarrollado con tecnologías de vanguardia para el diagnóstico médico asistido.
+                    </p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <p class="text-muted small mb-0">
+                        © 2025 - Universidad de los Andes, Bogotá, Colombia
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const modelId = '{{ model_id }}';
+        
+        // File input change handler
+        document.getElementById('imageFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('previewImg').src = e.target.result;
+                    document.getElementById('imagePreview').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+                
+                // Hide previous results
+                document.getElementById('resultsDiv').style.display = 'none';
+                document.getElementById('noResults').style.display = 'block';
+                document.getElementById('errorDiv').style.display = 'none';
+            }
+        });
+
+        // Form submission handler
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('imageFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Por favor, selecciona una imagen');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loadingDiv').style.display = 'block';
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('errorDiv').style.display = 'none';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch(`/predict/${modelId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    displayResults(result);
+                } else {
+                    showError(result.error || 'Error al procesar la imagen');
+                }
+            } catch (error) {
+                showError('Error de conexión: ' + error.message);
+            } finally {
+                document.getElementById('loadingDiv').style.display = 'none';
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        });
+
+        function displayResults(result) {
+            // Show processed image
+            document.getElementById('processedImage').src = `data:image/png;base64,${result.processed_image}`;
+            
+            // Display multiclass results
+            const multiclassDiv = document.getElementById('multiclassResults');
+            const multiclass = result.results.multiclass;
+            
+            let multiclassHTML = `
+                <div class="alert alert-info">
+                    <strong>Diagnóstico Principal:</strong> ${multiclass.predicted_class}
+                </div>
+                <div class="mb-3">
+                    <strong>Probabilidades por Estadio:</strong>
+                </div>
+            `;
+            
+            Object.entries(multiclass.probabilities).forEach(([category, probability]) => {
+                const percentage = (probability * 100).toFixed(1);
+                const isHighest = category === multiclass.predicted_class;
+                const progressClass = isHighest ? 'bg-success' : 'bg-secondary';
+                
+                multiclassHTML += `
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between">
+                            <span class="small ${isHighest ? 'fw-bold' : ''}">${category}</span>
+                            <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar ${progressClass}" 
+                                 style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            multiclassDiv.innerHTML = multiclassHTML;
+            
+            // Display binary results
+            const binaryDiv = document.getElementById('binaryResults');
+            let binaryHTML = '';
+            
+            result.results.binary.forEach((binary, index) => {
+                binaryHTML += `
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">${binary.name}</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-${binary.predicted_class.includes('Sin') || binary.predicted_class.includes('Leve') ? 'success' : 'warning'}">
+                                <strong>Resultado:</strong> ${binary.predicted_class}
+                            </div>
+                `;
+                
+                Object.entries(binary.predictions).forEach(([className, probability]) => {
+                    const percentage = (probability * 100).toFixed(1);
+                    const isHighest = className === binary.predicted_class;
+                    const progressClass = isHighest ? 'bg-primary' : 'bg-light';
+                    
+                    binaryHTML += `
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between">
+                                <span class="small ${isHighest ? 'fw-bold' : ''}">${className}</span>
+                                <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar ${progressClass}" 
+                                     style="width: ${percentage}%"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                binaryHTML += `
+                        </div>
+                    </div>
+                `;
+            });
+            
+            binaryDiv.innerHTML = binaryHTML;
+            
+            // Show results
+            document.getElementById('noResults').style.display = 'none';
+            document.getElementById('resultsDiv').style.display = 'block';
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorDiv').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
