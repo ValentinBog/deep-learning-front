@@ -86,6 +86,9 @@
                                 Cargar Imágenes
                             </button>
                         </form>
+
+                        <!-- Error/Success Messages (positioned right after upload) -->
+                        <div id="uploadMessages" class="mt-3"></div>
                         
                         <!-- Loaded Images Display -->
                         <div id="loadedImagesSection" style="display: none;">
@@ -103,6 +106,47 @@
                                 <i class="fas fa-brain me-2"></i>
                                 <span id="analyzeText">Analizar Todas las Imágenes</span>
                             </button>
+                        </div>
+
+                        <!-- APRI Calculator Section -->
+                        <div class="mt-4">
+                            <div class="card border-info">
+                                <div class="card-header bg-info text-white">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-calculator me-2"></i>
+                                        Calculadora APRI (Opcional)
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-text mb-3">
+                                        <small>Ingrese los valores para calcular el índice APRI que ayuda en la evaluación de la fibrosis hepática</small>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <label for="astValue" class="form-label">AST in IU/L</label>
+                                            <input type="number" class="form-control" id="astValue" step="0.1" min="0">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="astUpperLimit" class="form-label">AST Upper Limit of Normal in IU/L</label>
+                                            <input type="number" class="form-control" id="astUpperLimit" step="0.1" min="0" value="40" placeholder="40">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="platelets" class="form-label">Platelets in 10⁹/L</label>
+                                            <input type="number" class="form-control" id="platelets" step="0.1" min="0">
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-info btn-sm mt-2 w-100" id="calculateApriBtn">
+                                        <i class="fas fa-chart-line me-1"></i>
+                                        Calcular APRI
+                                    </button>
+                                    <div id="apriResult" class="mt-2" style="display: none;">
+                                        <div class="alert alert-info mb-0">
+                                            <strong>Índice APRI:</strong> <span id="apriValue"></span>
+                                            <br><small id="apriInterpretation"></small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Loading -->
@@ -212,6 +256,41 @@
                                 </div>
                             </div>
 
+                            <!-- APRI Results Section -->
+                            <div id="apriResultsSection" class="mb-4" style="display: none;">
+                                <div class="card border-info">
+                                    <div class="card-header bg-info text-white">
+                                        <h5 class="mb-0">🧮 Evaluación APRI del Paciente</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <h6>Valores Ingresados:</h6>
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>AST:</strong></div>
+                                                    <div class="col-6" id="displayAstValue"></div>
+                                                </div>
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>AST ULN:</strong></div>
+                                                    <div class="col-6" id="displayAstUln"></div>
+                                                </div>
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>Plaquetas:</strong></div>
+                                                    <div class="col-6" id="displayPlatelets"></div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <h6>Resultado APRI:</h6>
+                                                <div class="alert alert-info mb-2">
+                                                    <h4 class="mb-1" id="displayApriValue"></h4>
+                                                </div>
+                                                <div id="displayApriInterpretation" class="small"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Detalle de Imágenes Procesadas -->
                             <div id="imageDetailsSection">
                                 <div class="card border-secondary">
@@ -238,12 +317,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Error Display -->
-                <div id="errorDiv" class="alert alert-danger mt-3" style="display: none;">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <span id="errorMessage"></span>
                 </div>
             </div>
         </div>
@@ -322,7 +395,14 @@
                     uploadedImages = [];
                     updateImageDisplay();
                     hideResults();
+                    clearMessages();
                     document.getElementById('imageFile').value = '';
+                    // Reset APRI form
+                    document.getElementById('astValue').value = '';
+                    document.getElementById('astUpperLimit').value = '40';
+                    document.getElementById('platelets').value = '';
+                    document.getElementById('apriResult').style.display = 'none';
+                    window.currentAPRI = null;
                     showSuccess('Nueva sesión de paciente iniciada');
                 }
             } catch (error) {
@@ -352,6 +432,66 @@
             
             await analyzeAllImages();
         });
+
+        // APRI Calculator button handler
+        document.getElementById('calculateApriBtn').addEventListener('click', function() {
+            calculateAPRI();
+        });
+
+        // Calculate APRI score
+        function calculateAPRI() {
+            const astValue = parseFloat(document.getElementById('astValue').value);
+            const astUpperLimit = parseFloat(document.getElementById('astUpperLimit').value);
+            const platelets = parseFloat(document.getElementById('platelets').value);
+            
+            if (!astValue || !astUpperLimit || !platelets) {
+                showError('Por favor, ingrese todos los valores para calcular APRI');
+                return;
+            }
+            
+            if (astValue <= 0 || astUpperLimit <= 0 || platelets <= 0) {
+                showError('Todos los valores deben ser mayores que 0');
+                return;
+            }
+            
+            // Fórmula APRI: (AST / AST ULN) / Platelets * 100
+            const apriScore = (astValue / astUpperLimit) / (platelets / 100);
+            
+            // Mostrar resultado
+            document.getElementById('apriValue').textContent = apriScore.toFixed(3);
+            document.getElementById('apriInterpretation').innerHTML = getAPRIInterpretation(apriScore);
+            document.getElementById('apriResult').style.display = 'block';
+            
+            // Guardar valores para mostrar en resultados
+            window.currentAPRI = {
+                ast: astValue,
+                astUln: astUpperLimit,
+                platelets: platelets,
+                score: apriScore,
+                interpretation: getAPRIInterpretation(apriScore)
+            };
+        }
+
+        // Get APRI interpretation
+        function getAPRIInterpretation(apriScore) {
+            let interpretation = '<strong>Interpretación:</strong><br>';
+            
+            if (apriScore < 0.7) {
+                interpretation += '<span class="text-success">• Fibrosis significativa: Poco probable (Sensibilidad 77%, Especificidad 72%)</span><br>';
+            } else {
+                interpretation += '<span class="text-warning">• Fibrosis significativa: Probable (Umbral: 0.7)</span><br>';
+            }
+            
+            if (apriScore < 1.0) {
+                interpretation += '<span class="text-success">• Fibrosis severa: Poco probable</span><br>';
+                interpretation += '<span class="text-success">• Cirrosis: Poco probable</span>';
+            } else {
+                interpretation += '<span class="text-danger">• Fibrosis severa: Probable (Sensibilidad 61%, Especificidad 64%)</span><br>';
+                interpretation += '<span class="text-danger">• Cirrosis: Probable (Sensibilidad 76%, Especificidad 72%)</span>';
+            }
+            
+            return interpretation;
+        }
 
         // Upload multiple files
         async function uploadFiles(files) {
@@ -471,7 +611,7 @@
         async function analyzeAllImages() {
             document.getElementById('loadingDiv').style.display = 'block';
             document.getElementById('analyzeAllBtn').disabled = true;
-            document.getElementById('errorDiv').style.display = 'none';
+            clearMessages(); // Use the new message system
             
             try {
                 const response = await fetch(`/predict/${modelId}`, {
@@ -553,6 +693,16 @@
                     probabilityBarsDiv.innerHTML = probabilityHtml;
                 }
             }
+
+            // Show APRI results if available
+            if (window.currentAPRI) {
+                document.getElementById('displayAstValue').textContent = window.currentAPRI.ast + ' IU/L';
+                document.getElementById('displayAstUln').textContent = window.currentAPRI.astUln + ' IU/L';
+                document.getElementById('displayPlatelets').textContent = window.currentAPRI.platelets + ' × 10⁹/L';
+                document.getElementById('displayApriValue').textContent = 'APRI: ' + window.currentAPRI.score.toFixed(3);
+                document.getElementById('displayApriInterpretation').innerHTML = window.currentAPRI.interpretation;
+                document.getElementById('apriResultsSection').style.display = 'block';
+            }
             
             // Show processed images details
             const imageDetailsTable = document.getElementById('imageDetailsTable');
@@ -594,36 +744,51 @@
 
         function hideResults() {
             document.getElementById('resultsDiv').style.display = 'none';
+            document.getElementById('apriResultsSection').style.display = 'none';
             document.getElementById('noResults').style.display = 'block';
-            document.getElementById('errorDiv').style.display = 'none';
+            clearMessages();
+            // Limpiar valores APRI guardados
+            window.currentAPRI = null;
+        }
+
+        function clearMessages() {
+            document.getElementById('uploadMessages').innerHTML = '';
         }
 
         function showError(message) {
-            document.getElementById('errorMessage').textContent = message;
-            document.getElementById('errorDiv').style.display = 'block';
-            // Auto hide after 5 seconds
+            const messagesContainer = document.getElementById('uploadMessages');
+            messagesContainer.innerHTML = `
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            
+            // Auto hide after 8 seconds
             setTimeout(() => {
-                document.getElementById('errorDiv').style.display = 'none';
-            }, 5000);
+                const alertElement = messagesContainer.querySelector('.alert-danger');
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 8000);
         }
 
         function showSuccess(message) {
-            // Create temporary success alert
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
-            alertDiv.innerHTML = `
-                <i class="fas fa-check-circle me-2"></i>
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            const messagesContainer = document.getElementById('uploadMessages');
+            messagesContainer.innerHTML = `
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="fas fa-check-circle me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
             `;
             
-            const errorDiv = document.getElementById('errorDiv');
-            errorDiv.parentNode.insertBefore(alertDiv, errorDiv);
-            
-            // Auto remove after 5 seconds
+            // Auto hide after 5 seconds
             setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.remove();
+                const alertElement = messagesContainer.querySelector('.alert-success');
+                if (alertElement) {
+                    alertElement.remove();
                 }
             }, 5000);
         }
