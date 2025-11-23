@@ -498,6 +498,8 @@
 
         // Display analysis results in organized format
         function displayAnalysisResults(result) {
+            console.log('Resultado completo:', result); // Para debugging
+            
             // Show final stage
             document.getElementById('finalStage').textContent = `Etapa ${result.final_stage}`;
             
@@ -507,11 +509,11 @@
                 document.getElementById('usedImages').textContent = result.summary.used_images || 0;
                 document.getElementById('discardedImages').textContent = result.summary.discarded_images || 0;
                 
-                // Stage counts
+                // Stage counts - usar la estructura correcta
                 const stageCountsDiv = document.getElementById('stageCountsDiv');
                 let stageCountsHtml = '';
-                if (result.stage_counts) {
-                    Object.entries(result.stage_counts).forEach(([stage, count]) => {
+                if (result.summary.stage_counts) {
+                    Object.entries(result.summary.stage_counts).forEach(([stage, count]) => {
                         stageCountsHtml += `
                             <div class="row mb-1">
                                 <div class="col-4"><strong>${stage}:</strong></div>
@@ -519,6 +521,8 @@
                             </div>
                         `;
                     });
+                } else {
+                    stageCountsHtml = '<div class="text-muted">No hay datos de conteo disponibles</div>';
                 }
                 stageCountsDiv.innerHTML = stageCountsHtml;
                 

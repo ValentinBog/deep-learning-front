@@ -324,14 +324,44 @@ def predict(model_id):
                 stages[i]: probs[i] for i in range(min(len(stages), len(probs)))
             }
         
-        # Procesar resultados por imagen
+        # Procesar resultados por imagen y extraer ratios de máscara
         if 'per_image_results' in model_result:
+            # Extraer ratios de máscara de la salida raw
+            image_ratios = {}
+            if 'raw_output' in model_result:
+                raw_lines = model_result['raw_output'].split('\n')
+                current_filename = None
+                
+                for line in raw_lines:
+                    # Buscar línea de procesamiento
+                    if 'Procesando' in line and '.jpg' in line:
+                        import re
+                        filename_match = re.search(r'(IM-\d+-\d+\.jpg)', line)
+                        if filename_match:
+                            current_filename = filename_match.group(1)
+                    
+                    # Buscar línea de ratio inmediatamente después
+                    elif current_filename and 'ratio máscara =' in line:
+                        import re
+                        ratio_match = re.search(r'ratio máscara = ([\d.]+)', line)
+                        if ratio_match:
+                            ratio = float(ratio_match.group(1))
+                            image_ratios[current_filename] = ratio
+                            current_filename = None  # Reset para la siguiente imagen
+                
+                print(f"Ratios extraídos: {image_ratios}")  # DEBUG
+            
             for img_result in model_result['per_image_results']:
+                filename = img_result.get('filename', 'desconocido')
+                ratio_value = image_ratios.get(filename, None)
+                print(f"Imagen {filename}: ratio = {ratio_value}")  # DEBUG
+                
                 processed_img = {
-                    'name': img_result.get('filename', 'desconocido'),
+                    'name': filename,
                     'valid': img_result.get('used', False),
                     'pred_class': img_result.get('pred_class', 'N/A'),
-                    'probs': img_result.get('probs', [])
+                    'probs': img_result.get('probs', []),
+                    'ratio': ratio_value  # Agregar el ratio extraído
                 }
                 structured_result['processed_images'].append(processed_img)
         
