@@ -278,53 +278,143 @@ def predict(model_id):
         if not image_files:
             return jsonify({'error': 'No hay imágenes cargadas para el paciente'}), 400
         
-        results_list = []
-        model_config = MODELS_CONFIG[model_id]
-        target_size = model_config['input_size']
+        # Aquí llamarías a tu modelo real
+        # Por ahora simulo la salida que proporcionaste
+        mock_output = """📂 Paciente: /home/valentin/Bureau/DEEP LEARNING PROJET/FRONTGIT/deep-learning-front/uploads/4-7
+   Imágenes encontradas: 17
+ - Procesando IM-0001-0018.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2131)
+ - Procesando IM-0001-0019.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2342)
+ - Procesando IM-0001-0020.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2483)
+ - Procesando IM-0001-0022.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2164)
+ - Procesando IM-0001-0023.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.1839)
+ - Procesando IM-0001-0024.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.1704)
+ - Procesando IM-0001-0025.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2363)
+ - Procesando IM-0001-0026.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2244)
+ - Procesando IM-0001-0027.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.1920)
+ - Procesando IM-0001-0030.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2973)
+ - Procesando IM-0001-0031.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2780)
+ - Procesando IM-0001-0032.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2441)
+ - Procesando IM-0001-0033.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2706)
+ - Procesando IM-0001-0036.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.2020)
+ - Procesando IM-0001-0037.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.0644)
+ - Procesando IM-0001-0046.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.1098)
+ - Procesando IM-0001-0047.jpg...
+✅ Imagen válida para hígado (ratio máscara = 0.1804)
+
+✅ Resumen del paciente:
+   Imágenes totales:     17
+   Imágenes usadas:      17
+   Imágenes descartadas: 0
+   Conteo por clase en imágenes válidas:
+      - F4: 16
+      - F1: 1
+   Probabilidades promedio (F0..F4): [0.005 0.059 0.127 0.002 0.806]
+   🔍 Etapa de fibrosis final sugerida: F4
+
+Etapa final estimada para el paciente: F4"""
         
-        for filename in image_files:
-            filepath = os.path.join(patient_folder, filename)
-            
-            try:
-                # Preprocesar imagen
-                processed_image, resized_image = preprocess_image(filepath, target_size)
-                
-                # Realizar predicción según el tipo de modelo
-                if model_id == 'fibrosis_hepatica':
-                    prediction_results = predict_fibrosis(processed_image)
-                else:
-                    continue  # Saltar si el modelo no está implementado
-                
-                # Convertir imagen procesada a base64 para mostrar
-                _, buffer = cv2.imencode('.png', resized_image)
-                img_base64 = base64.b64encode(buffer).decode('utf-8')
-                
-                results_list.append({
-                    'filename': filename,
-                    'results': prediction_results,
-                    'processed_image': img_base64
-                })
-                
-            except Exception as e:
-                # Si hay error con una imagen, continuar con las otras
-                results_list.append({
-                    'filename': filename,
-                    'error': f'Error al procesar {filename}: {str(e)}'
-                })
-                continue
+        # Parsear la salida para estructurar los datos
+        parsed_results = parse_prediction_output(mock_output)
         
         # Limpiar directorio del paciente después de la predicción
         cleanup_patient_folder()
         
-        return jsonify({
-            'success': True,
-            'results': results_list,
-            'model_name': model_config['name'],
-            'total_images': len(results_list)
-        })
+        return jsonify(parsed_results)
         
     except Exception as e:
-        return jsonify({'error': f'Error al procesar: {str(e)}'}), 500@app.route('/api/models')
+        return jsonify({'error': f'Error al procesar: {str(e)}'}), 500
+
+def parse_prediction_output(output):
+    """Parsea la salida del modelo y la estructura en un formato JSON"""
+    import re
+    
+    lines = output.strip().split('\n')
+    
+    result = {
+        'status': 'success',
+        'patient_info': {},
+        'processed_images': [],
+        'summary': {},
+        'final_stage': '',
+        'stage_counts': {}
+    }
+    
+    # Extraer información del paciente
+    for line in lines:
+        if 'Paciente:' in line:
+            result['patient_info']['path'] = line.split('Paciente: ')[1].strip()
+        elif 'Imágenes encontradas:' in line:
+            result['patient_info']['images_found'] = int(re.search(r'\d+', line).group())
+    
+    # Extraer imágenes procesadas
+    current_image = None
+    for i, line in enumerate(lines):
+        if 'Procesando' in line and '.jpg' in line:
+            image_name = re.search(r'(IM-\d+-\d+\.jpg)', line).group(1)
+            current_image = {'name': image_name}
+        elif current_image and 'Imagen válida para hígado' in line:
+            ratio_match = re.search(r'ratio máscara = ([\d.]+)', line)
+            if ratio_match:
+                current_image['ratio'] = float(ratio_match.group(1))
+                current_image['valid'] = '✅' in line
+                result['processed_images'].append(current_image)
+                current_image = None
+    
+    # Extraer resumen
+    in_summary = False
+    for line in lines:
+        if '✅ Resumen del paciente:' in line:
+            in_summary = True
+            continue
+        elif in_summary:
+            if 'Imágenes totales:' in line:
+                result['summary']['total_images'] = int(re.search(r'\d+', line).group())
+            elif 'Imágenes usadas:' in line:
+                result['summary']['used_images'] = int(re.search(r'\d+', line).group())
+            elif 'Imágenes descartadas:' in line:
+                result['summary']['discarded_images'] = int(re.search(r'\d+', line).group())
+            elif '- F4:' in line:
+                result['stage_counts']['F4'] = int(re.search(r'F4: (\d+)', line).group(1))
+            elif '- F1:' in line:
+                result['stage_counts']['F1'] = int(re.search(r'F1: (\d+)', line).group(1))
+            elif 'Probabilidades promedio' in line:
+                probs_match = re.search(r'\[([\d.\s]+)\]', line)
+                if probs_match:
+                    probs = probs_match.group(1).split()
+                    result['summary']['probabilities'] = [float(x) for x in probs]
+                    # Crear diccionario de probabilidades por etapa
+                    stages = ['F0', 'F1', 'F2', 'F3', 'F4']
+                    result['summary']['probability_by_stage'] = {
+                        stages[i]: result['summary']['probabilities'][i] 
+                        for i in range(len(stages)) if i < len(result['summary']['probabilities'])
+                    }
+            elif 'Etapa de fibrosis final sugerida:' in line:
+                result['summary']['suggested_stage'] = line.split('sugerida: ')[1].strip()
+    
+    # Extraer etapa final
+    for line in lines:
+        if 'Etapa final estimada para el paciente:' in line:
+            result['final_stage'] = line.split('paciente: ')[1].strip()
+    
+    return result
+
+@app.route('/api/models')
 def get_models():
     """API endpoint para obtener información de los modelos disponibles"""
     return jsonify(MODELS_CONFIG)

@@ -161,7 +161,81 @@
                         </div>
                         
                         <div id="resultsDiv" style="display: none;">
-                            <!-- Results will be populated here -->
+                            <!-- Etapa Final -->
+                            <div id="finalStageSection" class="mb-4">
+                                <div class="alert alert-info border-start border-4 border-info">
+                                    <h4 class="alert-heading">🔍 Diagnóstico Final</h4>
+                                    <h3 id="finalStage" class="text-info mb-0"></h3>
+                                </div>
+                            </div>
+
+                            <!-- Resumen del Paciente -->
+                            <div id="patientSummarySection" class="mb-4">
+                                <div class="card border-primary">
+                                    <div class="card-header bg-primary text-white">
+                                        <h5 class="mb-0">📊 Resumen del Paciente</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>Imágenes totales:</strong></div>
+                                                    <div class="col-6" id="totalImages"></div>
+                                                </div>
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>Imágenes usadas:</strong></div>
+                                                    <div class="col-6" id="usedImages"></div>
+                                                </div>
+                                                <div class="row mb-2">
+                                                    <div class="col-6"><strong>Imágenes descartadas:</strong></div>
+                                                    <div class="col-6" id="discardedImages"></div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <h6>📈 Conteo por clase:</h6>
+                                                <div id="stageCountsDiv"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Probabilidades Promedio -->
+                            <div id="probabilitiesSection" class="mb-4">
+                                <div class="card border-warning">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h5 class="mb-0">📊 Probabilidades Promedio por Etapa</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="probabilityBars"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Detalle de Imágenes Procesadas -->
+                            <div id="imageDetailsSection">
+                                <div class="card border-secondary">
+                                    <div class="card-header bg-secondary text-white">
+                                        <h5 class="mb-0">🖼️ Detalle de Imágenes Procesadas</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="table-responsive">
+                                            <table class="table table-striped table-hover">
+                                                <thead class="table-dark">
+                                                    <tr>
+                                                        <th>Imagen</th>
+                                                        <th>Estado</th>
+                                                        <th>Ratio Máscara</th>
+                                                        <th>Validación</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="imageDetailsTable">
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -398,7 +472,6 @@
             document.getElementById('loadingDiv').style.display = 'block';
             document.getElementById('analyzeAllBtn').disabled = true;
             document.getElementById('errorDiv').style.display = 'none';
-            document.getElementById('totalImages').textContent = uploadedImages.length;
             
             try {
                 const response = await fetch(`/predict/${modelId}`, {
@@ -407,8 +480,8 @@
                 
                 const result = await response.json();
                 
-                if (response.ok && result.success) {
-                    displayAllResults(result);
+                if (response.ok && result.status === 'success') {
+                    displayAnalysisResults(result);
                     // Clear uploaded images since they're processed
                     uploadedImages = [];
                     updateImageDisplay();
@@ -423,141 +496,96 @@
             }
         }
 
-        // Display results for all images
-        function displayAllResults(result) {
-            const resultsDiv = document.getElementById('resultsDiv');
-            let html = '';
+        // Display analysis results in organized format
+        function displayAnalysisResults(result) {
+            // Show final stage
+            document.getElementById('finalStage').textContent = `Etapa ${result.final_stage}`;
             
-            html += `
-                <div class="alert alert-success">
-                    <i class="fas fa-check-circle me-2"></i>
-                    <strong>Análisis Completado</strong><br>
-                    Se analizaron ${result.total_images} imágenes con el modelo ${result.model_name}
-                </div>
-            `;
-            
-            result.results.forEach((imageResult, index) => {
-                if (imageResult.error) {
-                    html += `
-                        <div class="card mb-3">
-                            <div class="card-header bg-warning text-dark">
-                                <h6 class="mb-0">
-                                    <i class="fas fa-exclamation-triangle me-2"></i>
-                                    Imagen ${index + 1}: ${imageResult.filename}
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="alert alert-danger">
-                                    <i class="fas fa-times-circle me-2"></i>
-                                    ${imageResult.error}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    const multiclass = imageResult.results.multiclass;
-                    
-                    html += `
-                        <div class="card mb-4">
-                            <div class="card-header bg-primary text-white">
-                                <h6 class="mb-0">
-                                    <i class="fas fa-image me-2"></i>
-                                    Imagen ${index + 1}: ${imageResult.filename}
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <h6 class="text-primary">Imagen Procesada:</h6>
-                                        <img src="data:image/png;base64,${imageResult.processed_image}" 
-                                             class="img-fluid rounded border" 
-                                             style="max-height: 150px;" alt="Imagen procesada">
-                                    </div>
-                                    <div class="col-md-8">
-                                        <div class="alert alert-info">
-                                            <strong>Diagnóstico Principal:</strong> ${multiclass.predicted_class}
-                                        </div>
-                                        
-                                        <h6 class="text-primary">Probabilidades por Estadio:</h6>
-                    `;
-                    
-                    Object.entries(multiclass.probabilities).forEach(([category, probability]) => {
-                        const percentage = (probability * 100).toFixed(1);
-                        const isHighest = category === multiclass.predicted_class;
-                        const progressClass = isHighest ? 'bg-success' : 'bg-secondary';
-                        
-                        html += `
-                            <div class="mb-2">
-                                <div class="d-flex justify-content-between">
-                                    <span class="small ${isHighest ? 'fw-bold' : ''}">${category}</span>
-                                    <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
-                                </div>
-                                <div class="progress" style="height: 6px;">
-                                    <div class="progress-bar ${progressClass}" 
-                                         style="width: ${percentage}%"></div>
-                                </div>
+            // Show patient summary
+            if (result.summary) {
+                document.getElementById('totalImages').textContent = result.summary.total_images || 0;
+                document.getElementById('usedImages').textContent = result.summary.used_images || 0;
+                document.getElementById('discardedImages').textContent = result.summary.discarded_images || 0;
+                
+                // Stage counts
+                const stageCountsDiv = document.getElementById('stageCountsDiv');
+                let stageCountsHtml = '';
+                if (result.stage_counts) {
+                    Object.entries(result.stage_counts).forEach(([stage, count]) => {
+                        stageCountsHtml += `
+                            <div class="row mb-1">
+                                <div class="col-4"><strong>${stage}:</strong></div>
+                                <div class="col-8">${count}</div>
                             </div>
                         `;
                     });
-                    
-                    html += `
-                                    </div>
-                                </div>
-                                
-                                <h6 class="text-primary mt-3">Clasificaciones Binarias:</h6>
-                                <div class="row">
-                    `;
-                    
-                    imageResult.results.binary.forEach((binary, binaryIndex) => {
-                        html += `
-                            <div class="col-md-6 mb-3">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h6 class="mb-0 small">${binary.name}</h6>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="alert alert-${binary.predicted_class.includes('Sin') || binary.predicted_class.includes('Leve') ? 'success' : 'warning'} py-2">
-                                            <small><strong>Resultado:</strong> ${binary.predicted_class}</small>
-                                        </div>
-                        `;
-                        
-                        Object.entries(binary.predictions).forEach(([className, probability]) => {
-                            const percentage = (probability * 100).toFixed(1);
-                            const isHighest = className === binary.predicted_class;
-                            const progressClass = isHighest ? 'bg-primary' : 'bg-light';
-                            
-                            html += `
-                                <div class="mb-1">
-                                    <div class="d-flex justify-content-between">
-                                        <span style="font-size: 0.8rem; ${isHighest ? 'font-weight: bold;' : ''}">${className}</span>
-                                        <span style="font-size: 0.8rem; ${isHighest ? 'font-weight: bold;' : ''}">${percentage}%</span>
-                                    </div>
-                                    <div class="progress" style="height: 4px;">
-                                        <div class="progress-bar ${progressClass}" 
-                                             style="width: ${percentage}%"></div>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        
-                        html += `
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    
-                    html += `
-                                </div>
-                            </div>
-                        </div>
-                    `;
                 }
-            });
+                stageCountsDiv.innerHTML = stageCountsHtml;
+                
+                // Probability bars
+                if (result.summary.probability_by_stage) {
+                    const probabilityBarsDiv = document.getElementById('probabilityBars');
+                    let probabilityHtml = '';
+                    
+                    Object.entries(result.summary.probability_by_stage).forEach(([stage, probability]) => {
+                        const percentage = (probability * 100).toFixed(1);
+                        const isHighest = stage === result.final_stage;
+                        
+                        probabilityHtml += `
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between">
+                                    <span class="fw-bold ${isHighest ? 'text-primary' : ''}">${stage}</span>
+                                    <span class="fw-bold ${isHighest ? 'text-primary' : ''}">${percentage}%</span>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar ${isHighest ? 'bg-success' : 'bg-secondary'}" 
+                                         style="width: ${percentage}%">
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    probabilityBarsDiv.innerHTML = probabilityHtml;
+                }
+            }
             
-            resultsDiv.innerHTML = html;
+            // Show processed images details
+            const imageDetailsTable = document.getElementById('imageDetailsTable');
+            let tableHtml = '';
+            
+            if (result.processed_images && result.processed_images.length > 0) {
+                result.processed_images.forEach((image, index) => {
+                    const statusIcon = image.valid ? '✅' : '❌';
+                    const statusText = image.valid ? 'Válida para hígado' : 'No válida';
+                    const ratioFormatted = image.ratio ? image.ratio.toFixed(4) : 'N/A';
+                    
+                    tableHtml += `
+                        <tr>
+                            <td><strong>${image.name}</strong></td>
+                            <td>${statusIcon} ${statusText}</td>
+                            <td>${ratioFormatted}</td>
+                            <td>
+                                <span class="badge ${image.valid ? 'bg-success' : 'bg-warning'}">
+                                    ${image.valid ? 'Procesada' : 'Descartada'}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } else {
+                tableHtml = `
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">No hay detalles de imágenes disponibles</td>
+                    </tr>
+                `;
+            }
+            
+            imageDetailsTable.innerHTML = tableHtml;
+            
+            // Show results section
             document.getElementById('noResults').style.display = 'none';
-            resultsDiv.style.display = 'block';
+            document.getElementById('resultsDiv').style.display = 'block';
         }
 
         function hideResults() {
