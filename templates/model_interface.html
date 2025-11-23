@@ -47,44 +47,73 @@
             <div class="col-lg-6">
                 <div class="card shadow">
                     <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">
-                            <i class="fas fa-upload me-2"></i>
-                            Cargar Imagen
-                        </h5>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">
+                                <i class="fas fa-upload me-2"></i>
+                                Cargar Imágenes del Paciente
+                            </h5>
+                            <button type="button" class="btn btn-outline-light btn-sm" id="newPatientBtn">
+                                <i class="fas fa-plus me-1"></i>
+                                Nuevo Paciente
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- File Upload Form -->
                         <form id="uploadForm" enctype="multipart/form-data">
                             <div class="mb-3">
-                                <label for="imageFile" class="form-label">Seleccionar imagen de ecografía</label>
+                                <label for="imageFile" class="form-label">Seleccionar imágenes de ecografía</label>
                                 <input type="file" class="form-control" id="imageFile" name="file" 
-                                       accept=".png,.jpg,.jpeg,.tiff,.bmp" required>
+                                       accept=".png,.jpg,.jpeg,.tiff,.bmp" multiple>
                                 <div class="form-text">
-                                    Formatos soportados: PNG, JPG, JPEG, TIFF, BMP (máx. 16MB)
+                                    Formatos soportados: PNG, JPG, JPEG, TIFF, BMP (máx. 16MB por imagen)<br>
+                                    <strong>Puede seleccionar múltiples imágenes</strong>
                                 </div>
                             </div>
                             
-                            <!-- Image Preview -->
-                            <div id="imagePreview" class="mb-3" style="display: none;">
-                                <label class="form-label">Vista previa:</label>
-                                <div class="text-center">
-                                    <img id="previewImg" class="img-fluid rounded border" 
-                                         style="max-height: 300px;" alt="Vista previa">
+                            <!-- Upload Progress -->
+                            <div id="uploadProgress" class="mb-3" style="display: none;">
+                                <label class="form-label">Progreso de carga:</label>
+                                <div class="progress">
+                                    <div id="progressBar" class="progress-bar" role="progressbar" 
+                                         style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                                 </div>
+                                <div id="uploadStatus" class="text-muted small mt-2"></div>
                             </div>
                             
-                            <button type="submit" class="btn btn-success w-100" id="analyzeBtn">
-                                <i class="fas fa-brain me-2"></i>
-                                Analizar Imagen
+                            <button type="button" class="btn btn-primary w-100 mb-2" id="uploadBtn">
+                                <i class="fas fa-cloud-upload-alt me-2"></i>
+                                Cargar Imágenes
                             </button>
                         </form>
+                        
+                        <!-- Loaded Images Display -->
+                        <div id="loadedImagesSection" style="display: none;">
+                            <hr>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-images me-2"></i>
+                                    Imágenes Cargadas
+                                </h6>
+                                <span id="imageCount" class="badge bg-primary">0</span>
+                            </div>
+                            <div id="loadedImages" class="row g-2"></div>
+                            
+                            <button type="button" class="btn btn-success w-100 mt-3" id="analyzeAllBtn" disabled>
+                                <i class="fas fa-brain me-2"></i>
+                                <span id="analyzeText">Analizar Todas las Imágenes</span>
+                            </button>
+                        </div>
                         
                         <!-- Loading -->
                         <div id="loadingDiv" class="text-center py-4" style="display: none;">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Analizando...</span>
                             </div>
-                            <p class="mt-2 text-muted">Procesando imagen con IA...</p>
+                            <p class="mt-2 text-muted">Procesando imágenes con IA...</p>
+                            <div id="analysisProgress" class="mt-2">
+                                <small class="text-muted">Analizando imagen <span id="currentImage">1</span> de <span id="totalImages">1</span></small>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -132,26 +161,7 @@
                         </div>
                         
                         <div id="resultsDiv" style="display: none;">
-                            <!-- Processed Image -->
-                            <div class="mb-4">
-                                <h6 class="text-primary">Imagen Procesada:</h6>
-                                <div class="text-center">
-                                    <img id="processedImage" class="img-fluid rounded border" 
-                                         style="max-height: 200px;" alt="Imagen procesada">
-                                </div>
-                            </div>
-
-                            <!-- Multi-class Results -->
-                            <div class="mb-4">
-                                <h6 class="text-primary">Clasificación por Estadios:</h6>
-                                <div id="multiclassResults"></div>
-                            </div>
-
-                            <!-- Binary Classifications -->
-                            <div class="mb-3">
-                                <h6 class="text-primary">Clasificaciones Binarias:</h6>
-                                <div id="binaryResults"></div>
-                            </div>
+                            <!-- Results will be populated here -->
                         </div>
                     </div>
                 </div>
@@ -213,155 +223,377 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const modelId = '{{ model_id }}';
+        let uploadedImages = [];
         
-        // File input change handler
-        document.getElementById('imageFile').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    document.getElementById('previewImg').src = e.target.result;
-                    document.getElementById('imagePreview').style.display = 'block';
-                };
-                reader.readAsDataURL(file);
+        // Load existing images when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUploadedImages();
+        });
+
+        // New Patient button handler
+        document.getElementById('newPatientBtn').addEventListener('click', async function() {
+            if (uploadedImages.length > 0) {
+                if (!confirm('¿Está seguro de que desea iniciar un nuevo paciente? Se perderán todas las imágenes cargadas.')) {
+                    return;
+                }
+            }
+            
+            try {
+                const response = await fetch(`/new_patient/${modelId}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
                 
-                // Hide previous results
-                document.getElementById('resultsDiv').style.display = 'none';
-                document.getElementById('noResults').style.display = 'block';
-                document.getElementById('errorDiv').style.display = 'none';
+                if (result.success) {
+                    uploadedImages = [];
+                    updateImageDisplay();
+                    hideResults();
+                    document.getElementById('imageFile').value = '';
+                    showSuccess('Nueva sesión de paciente iniciada');
+                }
+            } catch (error) {
+                showError('Error al iniciar nueva sesión: ' + error.message);
             }
         });
 
-        // Form submission handler
-        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
+        // Upload button handler
+        document.getElementById('uploadBtn').addEventListener('click', async function() {
             const fileInput = document.getElementById('imageFile');
-            const file = fileInput.files[0];
+            const files = fileInput.files;
             
-            if (!file) {
-                showError('Por favor, selecciona una imagen');
+            if (files.length === 0) {
+                showError('Por favor, selecciona al menos una imagen');
                 return;
             }
             
-            // Show loading
-            document.getElementById('loadingDiv').style.display = 'block';
-            document.getElementById('analyzeBtn').disabled = true;
-            document.getElementById('errorDiv').style.display = 'none';
+            await uploadFiles(files);
+        });
+
+        // Analyze all images button handler
+        document.getElementById('analyzeAllBtn').addEventListener('click', async function() {
+            if (uploadedImages.length === 0) {
+                showError('No hay imágenes cargadas para analizar');
+                return;
+            }
             
-            const formData = new FormData();
-            formData.append('file', file);
+            await analyzeAllImages();
+        });
+
+        // Upload multiple files
+        async function uploadFiles(files) {
+            const totalFiles = files.length;
+            let uploadedCount = 0;
+            let failedCount = 0;
+            
+            // Show progress
+            document.getElementById('uploadProgress').style.display = 'block';
+            document.getElementById('uploadBtn').disabled = true;
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                try {
+                    document.getElementById('uploadStatus').textContent = `Subiendo ${file.name}...`;
+                    
+                    const response = await fetch(`/upload_image/${modelId}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        uploadedImages.push({
+                            filename: result.filename,
+                            thumbnail: result.thumbnail,
+                            originalName: file.name
+                        });
+                        uploadedCount++;
+                    } else {
+                        failedCount++;
+                        console.error(`Error uploading ${file.name}:`, result.error);
+                    }
+                    
+                } catch (error) {
+                    failedCount++;
+                    console.error(`Error uploading ${file.name}:`, error);
+                }
+                
+                // Update progress
+                const progress = ((i + 1) / totalFiles) * 100;
+                document.getElementById('progressBar').style.width = progress + '%';
+                document.getElementById('progressBar').textContent = Math.round(progress) + '%';
+            }
+            
+            // Hide progress and show results
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadBtn').disabled = false;
+            document.getElementById('imageFile').value = '';
+            
+            if (uploadedCount > 0) {
+                updateImageDisplay();
+                showSuccess(`${uploadedCount} imagen(es) cargada(s) correctamente${failedCount > 0 ? `. ${failedCount} fallaron.` : ''}`);
+            } else {
+                showError('No se pudieron cargar las imágenes');
+            }
+        }
+
+        // Load uploaded images from server
+        async function loadUploadedImages() {
+            try {
+                const response = await fetch(`/get_uploaded_images/${modelId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    uploadedImages = result.images.map(img => ({
+                        filename: img.filename,
+                        thumbnail: img.thumbnail,
+                        originalName: img.filename
+                    }));
+                    updateImageDisplay();
+                }
+            } catch (error) {
+                console.error('Error loading images:', error);
+            }
+        }
+
+        // Update image display
+        function updateImageDisplay() {
+            const container = document.getElementById('loadedImages');
+            const countBadge = document.getElementById('imageCount');
+            const analyzeBtn = document.getElementById('analyzeAllBtn');
+            const section = document.getElementById('loadedImagesSection');
+            const analyzeText = document.getElementById('analyzeText');
+            
+            countBadge.textContent = uploadedImages.length;
+            
+            if (uploadedImages.length > 0) {
+                section.style.display = 'block';
+                analyzeBtn.disabled = false;
+                analyzeText.textContent = `Analizar ${uploadedImages.length} Imagen${uploadedImages.length > 1 ? 'es' : ''}`;
+                
+                container.innerHTML = uploadedImages.map((img, index) => `
+                    <div class="col-4 col-md-3">
+                        <div class="card">
+                            <img src="data:image/jpeg;base64,${img.thumbnail}" 
+                                 class="card-img-top" 
+                                 style="height: 80px; object-fit: cover;" 
+                                 title="${img.originalName}">
+                            <div class="card-body p-1">
+                                <small class="text-muted" style="font-size: 0.7rem;">${img.originalName.substring(0, 15)}${img.originalName.length > 15 ? '...' : ''}</small>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                section.style.display = 'none';
+                analyzeBtn.disabled = true;
+            }
+        }
+
+        // Analyze all images
+        async function analyzeAllImages() {
+            document.getElementById('loadingDiv').style.display = 'block';
+            document.getElementById('analyzeAllBtn').disabled = true;
+            document.getElementById('errorDiv').style.display = 'none';
+            document.getElementById('totalImages').textContent = uploadedImages.length;
             
             try {
                 const response = await fetch(`/predict/${modelId}`, {
-                    method: 'POST',
-                    body: formData
+                    method: 'POST'
                 });
                 
                 const result = await response.json();
                 
                 if (response.ok && result.success) {
-                    displayResults(result);
+                    displayAllResults(result);
+                    // Clear uploaded images since they're processed
+                    uploadedImages = [];
+                    updateImageDisplay();
                 } else {
-                    showError(result.error || 'Error al procesar la imagen');
+                    showError(result.error || 'Error al procesar las imágenes');
                 }
             } catch (error) {
                 showError('Error de conexión: ' + error.message);
             } finally {
                 document.getElementById('loadingDiv').style.display = 'none';
-                document.getElementById('analyzeBtn').disabled = false;
+                document.getElementById('analyzeAllBtn').disabled = false;
             }
-        });
+        }
 
-        function displayResults(result) {
-            // Show processed image
-            document.getElementById('processedImage').src = `data:image/png;base64,${result.processed_image}`;
+        // Display results for all images
+        function displayAllResults(result) {
+            const resultsDiv = document.getElementById('resultsDiv');
+            let html = '';
             
-            // Display multiclass results
-            const multiclassDiv = document.getElementById('multiclassResults');
-            const multiclass = result.results.multiclass;
-            
-            let multiclassHTML = `
-                <div class="alert alert-info">
-                    <strong>Diagnóstico Principal:</strong> ${multiclass.predicted_class}
-                </div>
-                <div class="mb-3">
-                    <strong>Probabilidades por Estadio:</strong>
+            html += `
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>Análisis Completado</strong><br>
+                    Se analizaron ${result.total_images} imágenes con el modelo ${result.model_name}
                 </div>
             `;
             
-            Object.entries(multiclass.probabilities).forEach(([category, probability]) => {
-                const percentage = (probability * 100).toFixed(1);
-                const isHighest = category === multiclass.predicted_class;
-                const progressClass = isHighest ? 'bg-success' : 'bg-secondary';
-                
-                multiclassHTML += `
-                    <div class="mb-2">
-                        <div class="d-flex justify-content-between">
-                            <span class="small ${isHighest ? 'fw-bold' : ''}">${category}</span>
-                            <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
-                        </div>
-                        <div class="progress" style="height: 8px;">
-                            <div class="progress-bar ${progressClass}" 
-                                 style="width: ${percentage}%"></div>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            multiclassDiv.innerHTML = multiclassHTML;
-            
-            // Display binary results
-            const binaryDiv = document.getElementById('binaryResults');
-            let binaryHTML = '';
-            
-            result.results.binary.forEach((binary, index) => {
-                binaryHTML += `
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <h6 class="mb-0">${binary.name}</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="alert alert-${binary.predicted_class.includes('Sin') || binary.predicted_class.includes('Leve') ? 'success' : 'warning'}">
-                                <strong>Resultado:</strong> ${binary.predicted_class}
+            result.results.forEach((imageResult, index) => {
+                if (imageResult.error) {
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header bg-warning text-dark">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    Imagen ${index + 1}: ${imageResult.filename}
+                                </h6>
                             </div>
-                `;
-                
-                Object.entries(binary.predictions).forEach(([className, probability]) => {
-                    const percentage = (probability * 100).toFixed(1);
-                    const isHighest = className === binary.predicted_class;
-                    const progressClass = isHighest ? 'bg-primary' : 'bg-light';
-                    
-                    binaryHTML += `
-                        <div class="mb-2">
-                            <div class="d-flex justify-content-between">
-                                <span class="small ${isHighest ? 'fw-bold' : ''}">${className}</span>
-                                <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
-                            </div>
-                            <div class="progress" style="height: 6px;">
-                                <div class="progress-bar ${progressClass}" 
-                                     style="width: ${percentage}%"></div>
+                            <div class="card-body">
+                                <div class="alert alert-danger">
+                                    <i class="fas fa-times-circle me-2"></i>
+                                    ${imageResult.error}
+                                </div>
                             </div>
                         </div>
                     `;
-                });
-                
-                binaryHTML += `
+                } else {
+                    const multiclass = imageResult.results.multiclass;
+                    
+                    html += `
+                        <div class="card mb-4">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-image me-2"></i>
+                                    Imagen ${index + 1}: ${imageResult.filename}
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <h6 class="text-primary">Imagen Procesada:</h6>
+                                        <img src="data:image/png;base64,${imageResult.processed_image}" 
+                                             class="img-fluid rounded border" 
+                                             style="max-height: 150px;" alt="Imagen procesada">
+                                    </div>
+                                    <div class="col-md-8">
+                                        <div class="alert alert-info">
+                                            <strong>Diagnóstico Principal:</strong> ${multiclass.predicted_class}
+                                        </div>
+                                        
+                                        <h6 class="text-primary">Probabilidades por Estadio:</h6>
+                    `;
+                    
+                    Object.entries(multiclass.probabilities).forEach(([category, probability]) => {
+                        const percentage = (probability * 100).toFixed(1);
+                        const isHighest = category === multiclass.predicted_class;
+                        const progressClass = isHighest ? 'bg-success' : 'bg-secondary';
+                        
+                        html += `
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span class="small ${isHighest ? 'fw-bold' : ''}">${category}</span>
+                                    <span class="small ${isHighest ? 'fw-bold' : ''}">${percentage}%</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar ${progressClass}" 
+                                         style="width: ${percentage}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                                    </div>
+                                </div>
+                                
+                                <h6 class="text-primary mt-3">Clasificaciones Binarias:</h6>
+                                <div class="row">
+                    `;
+                    
+                    imageResult.results.binary.forEach((binary, binaryIndex) => {
+                        html += `
+                            <div class="col-md-6 mb-3">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0 small">${binary.name}</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="alert alert-${binary.predicted_class.includes('Sin') || binary.predicted_class.includes('Leve') ? 'success' : 'warning'} py-2">
+                                            <small><strong>Resultado:</strong> ${binary.predicted_class}</small>
+                                        </div>
+                        `;
+                        
+                        Object.entries(binary.predictions).forEach(([className, probability]) => {
+                            const percentage = (probability * 100).toFixed(1);
+                            const isHighest = className === binary.predicted_class;
+                            const progressClass = isHighest ? 'bg-primary' : 'bg-light';
+                            
+                            html += `
+                                <div class="mb-1">
+                                    <div class="d-flex justify-content-between">
+                                        <span style="font-size: 0.8rem; ${isHighest ? 'font-weight: bold;' : ''}">${className}</span>
+                                        <span style="font-size: 0.8rem; ${isHighest ? 'font-weight: bold;' : ''}">${percentage}%</span>
+                                    </div>
+                                    <div class="progress" style="height: 4px;">
+                                        <div class="progress-bar ${progressClass}" 
+                                             style="width: ${percentage}%"></div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += `
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                }
             });
             
-            binaryDiv.innerHTML = binaryHTML;
-            
-            // Show results
+            resultsDiv.innerHTML = html;
             document.getElementById('noResults').style.display = 'none';
-            document.getElementById('resultsDiv').style.display = 'block';
+            resultsDiv.style.display = 'block';
+        }
+
+        function hideResults() {
+            document.getElementById('resultsDiv').style.display = 'none';
+            document.getElementById('noResults').style.display = 'block';
+            document.getElementById('errorDiv').style.display = 'none';
         }
 
         function showError(message) {
             document.getElementById('errorMessage').textContent = message;
             document.getElementById('errorDiv').style.display = 'block';
+            // Auto hide after 5 seconds
+            setTimeout(() => {
+                document.getElementById('errorDiv').style.display = 'none';
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            // Create temporary success alert
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
+            alertDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            const errorDiv = document.getElementById('errorDiv');
+            errorDiv.parentNode.insertBefore(alertDiv, errorDiv);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
         }
     </script>
 </body>

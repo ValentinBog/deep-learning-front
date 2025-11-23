@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, flash, redirect, url_for
+from flask import Flask, request, render_template, jsonify, flash, redirect, url_for, session
 from werkzeug.utils import secure_filename
 import os
 import cv2
@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 import base64
 from io import BytesIO
+import uuid
+import shutil
 
 # Configuration
 app = Flask(__name__)
@@ -44,6 +46,23 @@ def allowed_file(filename):
     """Verifica si la extensión del archivo está permitida"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_patient_folder():
+    """Obtiene o crea el directorio temporal del paciente actual"""
+    if 'patient_id' not in session:
+        session['patient_id'] = str(uuid.uuid4())
+    
+    patient_folder = os.path.join(app.config['UPLOAD_FOLDER'], session['patient_id'])
+    os.makedirs(patient_folder, exist_ok=True)
+    return patient_folder
+
+def cleanup_patient_folder():
+    """Limpia el directorio temporal del paciente"""
+    if 'patient_id' in session:
+        patient_folder = os.path.join(app.config['UPLOAD_FOLDER'], session['patient_id'])
+        if os.path.exists(patient_folder):
+            shutil.rmtree(patient_folder)
+        session.pop('patient_id', None)
 
 def preprocess_image(image_path, target_size):
     """Preprocesa la imagen para el modelo"""
@@ -136,14 +155,24 @@ def model_interface(model_id):
         flash('Modelo no encontrado', 'error')
         return redirect(url_for('index'))
     
+    # Asegurar que hay una sesión de paciente activa
+    get_patient_folder()
+    
     model_config = MODELS_CONFIG[model_id]
     return render_template('model_interface.html', 
                          model_id=model_id, 
                          model_config=model_config)
 
-@app.route('/predict/<model_id>', methods=['POST'])
-def predict(model_id):
-    """Endpoint para realizar predicciones"""
+@app.route('/new_patient/<model_id>', methods=['POST'])
+def new_patient(model_id):
+    """Crea una nueva sesión de paciente limpiando el directorio anterior"""
+    cleanup_patient_folder()
+    get_patient_folder()  # Crear nuevo directorio
+    return jsonify({'success': True, 'message': 'Nueva sesión de paciente creada'})
+
+@app.route('/upload_image/<model_id>', methods=['POST'])
+def upload_image(model_id):
+    """Endpoint para subir múltiples imágenes sin hacer predicción"""
     if model_id not in MODELS_CONFIG:
         return jsonify({'error': 'Modelo no encontrado'}), 404
     
@@ -156,49 +185,146 @@ def predict(model_id):
     
     if file and allowed_file(file.filename):
         try:
-            # Guardar archivo
+            # Obtener directorio del paciente
+            patient_folder = get_patient_folder()
+            
+            # Guardar archivo en el directorio del paciente
             filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Incluir milisegundos
             filename = f"{timestamp}_{filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            filepath = os.path.join(patient_folder, filename)
             file.save(filepath)
             
-            # Obtener configuración del modelo
-            model_config = MODELS_CONFIG[model_id]
-            target_size = model_config['input_size']
+            # Crear miniatura para vista previa
+            image = cv2.imread(filepath)
+            if image is None:
+                os.remove(filepath)
+                return jsonify({'error': 'No se pudo procesar la imagen'}), 400
             
-            # Preprocesar imagen
-            processed_image, resized_image = preprocess_image(filepath, target_size)
-            
-            # Realizar predicción según el tipo de modelo
-            if model_id == 'fibrosis_hepatica':
-                results = predict_fibrosis(processed_image)
+            # Redimensionar para miniatura (manteniendo aspecto)
+            height, width = image.shape[:2]
+            max_size = 150
+            if width > height:
+                new_width = max_size
+                new_height = int((max_size * height) / width)
             else:
-                return jsonify({'error': 'Tipo de modelo no implementado'}), 500
+                new_height = max_size
+                new_width = int((max_size * width) / height)
             
-            # Convertir imagen procesada a base64 para mostrar
-            _, buffer = cv2.imencode('.png', resized_image)
-            img_base64 = base64.b64encode(buffer).decode('utf-8')
+            thumbnail = cv2.resize(image, (new_width, new_height))
             
-            # Limpiar archivo temporal
-            os.remove(filepath)
+            # Convertir a base64
+            _, buffer = cv2.imencode('.jpg', thumbnail)
+            thumbnail_base64 = base64.b64encode(buffer).decode('utf-8')
             
             return jsonify({
                 'success': True,
-                'results': results,
-                'processed_image': img_base64,
-                'model_name': model_config['name']
+                'filename': filename,
+                'thumbnail': thumbnail_base64,
+                'message': 'Imagen cargada correctamente'
             })
             
         except Exception as e:
-            # Limpiar archivo si existe
-            if 'filepath' in locals() and os.path.exists(filepath):
-                os.remove(filepath)
             return jsonify({'error': f'Error al procesar: {str(e)}'}), 500
     
     return jsonify({'error': 'Tipo de archivo no permitido'}), 400
 
-@app.route('/api/models')
+@app.route('/get_uploaded_images/<model_id>')
+def get_uploaded_images(model_id):
+    """Obtiene la lista de imágenes cargadas para el paciente actual"""
+    try:
+        patient_folder = get_patient_folder()
+        images = []
+        
+        for filename in os.listdir(patient_folder):
+            if allowed_file(filename):
+                filepath = os.path.join(patient_folder, filename)
+                
+                # Crear miniatura
+                image = cv2.imread(filepath)
+                if image is not None:
+                    height, width = image.shape[:2]
+                    max_size = 150
+                    if width > height:
+                        new_width = max_size
+                        new_height = int((max_size * height) / width)
+                    else:
+                        new_height = max_size
+                        new_width = int((max_size * width) / height)
+                    
+                    thumbnail = cv2.resize(image, (new_width, new_height))
+                    _, buffer = cv2.imencode('.jpg', thumbnail)
+                    thumbnail_base64 = base64.b64encode(buffer).decode('utf-8')
+                    
+                    images.append({
+                        'filename': filename,
+                        'thumbnail': thumbnail_base64
+                    })
+        
+        return jsonify({'success': True, 'images': images})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/predict/<model_id>', methods=['POST'])
+def predict(model_id):
+    """Endpoint para realizar predicciones en todas las imágenes del paciente"""
+    if model_id not in MODELS_CONFIG:
+        return jsonify({'error': 'Modelo no encontrado'}), 404
+    
+    try:
+        patient_folder = get_patient_folder()
+        image_files = [f for f in os.listdir(patient_folder) if allowed_file(f)]
+        
+        if not image_files:
+            return jsonify({'error': 'No hay imágenes cargadas para el paciente'}), 400
+        
+        results_list = []
+        model_config = MODELS_CONFIG[model_id]
+        target_size = model_config['input_size']
+        
+        for filename in image_files:
+            filepath = os.path.join(patient_folder, filename)
+            
+            try:
+                # Preprocesar imagen
+                processed_image, resized_image = preprocess_image(filepath, target_size)
+                
+                # Realizar predicción según el tipo de modelo
+                if model_id == 'fibrosis_hepatica':
+                    prediction_results = predict_fibrosis(processed_image)
+                else:
+                    continue  # Saltar si el modelo no está implementado
+                
+                # Convertir imagen procesada a base64 para mostrar
+                _, buffer = cv2.imencode('.png', resized_image)
+                img_base64 = base64.b64encode(buffer).decode('utf-8')
+                
+                results_list.append({
+                    'filename': filename,
+                    'results': prediction_results,
+                    'processed_image': img_base64
+                })
+                
+            except Exception as e:
+                # Si hay error con una imagen, continuar con las otras
+                results_list.append({
+                    'filename': filename,
+                    'error': f'Error al procesar {filename}: {str(e)}'
+                })
+                continue
+        
+        # Limpiar directorio del paciente después de la predicción
+        cleanup_patient_folder()
+        
+        return jsonify({
+            'success': True,
+            'results': results_list,
+            'model_name': model_config['name'],
+            'total_images': len(results_list)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error al procesar: {str(e)}'}), 500@app.route('/api/models')
 def get_models():
     """API endpoint para obtener información de los modelos disponibles"""
     return jsonify(MODELS_CONFIG)
