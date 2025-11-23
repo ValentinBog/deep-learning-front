@@ -10,6 +10,8 @@ import base64
 from io import BytesIO
 import uuid
 import shutil
+from model_wrapper import run_liver_fibrosis_model
+from models_config import MODELS_CONFIG
 
 # Configuration
 app = Flask(__name__)
@@ -278,143 +280,86 @@ def predict(model_id):
         if not image_files:
             return jsonify({'error': 'No hay imágenes cargadas para el paciente'}), 400
         
-        # Aquí llamarías a tu modelo real
-        # Por ahora simulo la salida que proporcionaste
-        mock_output = """📂 Paciente: /home/valentin/Bureau/DEEP LEARNING PROJET/FRONTGIT/deep-learning-front/uploads/4-7
-   Imágenes encontradas: 17
- - Procesando IM-0001-0018.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2131)
- - Procesando IM-0001-0019.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2342)
- - Procesando IM-0001-0020.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2483)
- - Procesando IM-0001-0022.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2164)
- - Procesando IM-0001-0023.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.1839)
- - Procesando IM-0001-0024.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.1704)
- - Procesando IM-0001-0025.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2363)
- - Procesando IM-0001-0026.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2244)
- - Procesando IM-0001-0027.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.1920)
- - Procesando IM-0001-0030.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2973)
- - Procesando IM-0001-0031.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2780)
- - Procesando IM-0001-0032.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2441)
- - Procesando IM-0001-0033.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2706)
- - Procesando IM-0001-0036.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.2020)
- - Procesando IM-0001-0037.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.0644)
- - Procesando IM-0001-0046.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.1098)
- - Procesando IM-0001-0047.jpg...
-✅ Imagen válida para hígado (ratio máscara = 0.1804)
-
-✅ Resumen del paciente:
-   Imágenes totales:     17
-   Imágenes usadas:      17
-   Imágenes descartadas: 0
-   Conteo por clase en imágenes válidas:
-      - F4: 16
-      - F1: 1
-   Probabilidades promedio (F0..F4): [0.005 0.059 0.127 0.002 0.806]
-   🔍 Etapa de fibrosis final sugerida: F4
-
-Etapa final estimada para el paciente: F4"""
+        # Ejecutar el modelo real usando el wrapper
+        print(f"Ejecutando modelo en carpeta: {patient_folder}")
+        model_result = run_liver_fibrosis_model(patient_folder)
         
-        # Parsear la salida para estructurar los datos
-        parsed_results = parse_prediction_output(mock_output)
+        # Verificar si hubo errores en el modelo
+        if 'error' in model_result:
+            print(f"Error del modelo: {model_result['error']}")
+            # Si hay error, mostrar la salida raw para debugging
+            if 'raw_output' in model_result:
+                print("Salida raw del modelo:")
+                print(model_result['raw_output'])
+            
+            return jsonify({
+                'error': f"Error en el modelo: {model_result.get('error', 'Error desconocido')}",
+                'details': model_result.get('raw_output', 'Sin detalles adicionales')
+            }), 500
+        
+        # Estructurar los resultados para la interfaz web
+        structured_result = {
+            'status': 'success',
+            'patient_info': {
+                'path': model_result.get('patient_folder', patient_folder),
+                'images_found': model_result.get('total_images', len(image_files))
+            },
+            'summary': {
+                'total_images': model_result.get('total_images', 0),
+                'used_images': model_result.get('used_images', 0),
+                'discarded_images': model_result.get('discarded_images', 0),
+                'stage_counts': model_result.get('per_class_counts', {}),
+                'probabilities': model_result.get('patient_probs', []),
+                'probability_by_stage': {}
+            },
+            'final_stage': model_result.get('patient_stage', 'Desconocido'),
+            'processed_images': []
+        }
+        
+        # Crear diccionario de probabilidades por etapa
+        if model_result.get('patient_probs'):
+            stages = ['F0', 'F1', 'F2', 'F3', 'F4']
+            probs = model_result['patient_probs']
+            structured_result['summary']['probability_by_stage'] = {
+                stages[i]: probs[i] for i in range(min(len(stages), len(probs)))
+            }
+        
+        # Procesar resultados por imagen
+        if 'per_image_results' in model_result:
+            for img_result in model_result['per_image_results']:
+                processed_img = {
+                    'name': img_result.get('filename', 'desconocido'),
+                    'valid': img_result.get('used', False),
+                    'pred_class': img_result.get('pred_class', 'N/A'),
+                    'probs': img_result.get('probs', [])
+                }
+                structured_result['processed_images'].append(processed_img)
+        
+        # Incluir salida raw para debugging (opcional, puedes comentar esta línea en producción)
+        structured_result['debug'] = {
+            'raw_output': model_result.get('raw_output', ''),
+            'error_output': model_result.get('error_output', '')
+        }
         
         # Limpiar directorio del paciente después de la predicción
         cleanup_patient_folder()
         
-        return jsonify(parsed_results)
+        return jsonify(structured_result)
         
     except Exception as e:
-        return jsonify({'error': f'Error al procesar: {str(e)}'}), 500
-
-def parse_prediction_output(output):
-    """Parsea la salida del modelo y la estructura en un formato JSON"""
-    import re
-    
-    lines = output.strip().split('\n')
-    
-    result = {
-        'status': 'success',
-        'patient_info': {},
-        'processed_images': [],
-        'summary': {},
-        'final_stage': '',
-        'stage_counts': {}
-    }
-    
-    # Extraer información del paciente
-    for line in lines:
-        if 'Paciente:' in line:
-            result['patient_info']['path'] = line.split('Paciente: ')[1].strip()
-        elif 'Imágenes encontradas:' in line:
-            result['patient_info']['images_found'] = int(re.search(r'\d+', line).group())
-    
-    # Extraer imágenes procesadas
-    current_image = None
-    for i, line in enumerate(lines):
-        if 'Procesando' in line and '.jpg' in line:
-            image_name = re.search(r'(IM-\d+-\d+\.jpg)', line).group(1)
-            current_image = {'name': image_name}
-        elif current_image and 'Imagen válida para hígado' in line:
-            ratio_match = re.search(r'ratio máscara = ([\d.]+)', line)
-            if ratio_match:
-                current_image['ratio'] = float(ratio_match.group(1))
-                current_image['valid'] = '✅' in line
-                result['processed_images'].append(current_image)
-                current_image = None
-    
-    # Extraer resumen
-    in_summary = False
-    for line in lines:
-        if '✅ Resumen del paciente:' in line:
-            in_summary = True
-            continue
-        elif in_summary:
-            if 'Imágenes totales:' in line:
-                result['summary']['total_images'] = int(re.search(r'\d+', line).group())
-            elif 'Imágenes usadas:' in line:
-                result['summary']['used_images'] = int(re.search(r'\d+', line).group())
-            elif 'Imágenes descartadas:' in line:
-                result['summary']['discarded_images'] = int(re.search(r'\d+', line).group())
-            elif '- F4:' in line:
-                result['stage_counts']['F4'] = int(re.search(r'F4: (\d+)', line).group(1))
-            elif '- F1:' in line:
-                result['stage_counts']['F1'] = int(re.search(r'F1: (\d+)', line).group(1))
-            elif 'Probabilidades promedio' in line:
-                probs_match = re.search(r'\[([\d.\s]+)\]', line)
-                if probs_match:
-                    probs = probs_match.group(1).split()
-                    result['summary']['probabilities'] = [float(x) for x in probs]
-                    # Crear diccionario de probabilidades por etapa
-                    stages = ['F0', 'F1', 'F2', 'F3', 'F4']
-                    result['summary']['probability_by_stage'] = {
-                        stages[i]: result['summary']['probabilities'][i] 
-                        for i in range(len(stages)) if i < len(result['summary']['probabilities'])
-                    }
-            elif 'Etapa de fibrosis final sugerida:' in line:
-                result['summary']['suggested_stage'] = line.split('sugerida: ')[1].strip()
-    
-    # Extraer etapa final
-    for line in lines:
-        if 'Etapa final estimada para el paciente:' in line:
-            result['final_stage'] = line.split('paciente: ')[1].strip()
-    
-    return result
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Error en predict: {str(e)}")
+        print(error_traceback)
+        return jsonify({
+            'error': f'Error al procesar: {str(e)}',
+            'traceback': error_traceback
+        }), 500
 
 @app.route('/api/models')
+def get_models():
+    """API endpoint para obtener información de los modelos disponibles"""
+    return jsonify(MODELS_CONFIG)
 def get_models():
     """API endpoint para obtener información de los modelos disponibles"""
     return jsonify(MODELS_CONFIG)
