@@ -12,12 +12,18 @@ import uuid
 import shutil
 from model_wrapper import run_liver_fibrosis_model
 from models_config import MODELS_CONFIG
+from config import config
 
 # Configuration
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# Charger la configuration selon l'environnement
+config_name = os.environ.get('FLASK_ENV', 'development')
+app_config = config.get(config_name, config['default'])
+
+app.secret_key = app_config.SECRET_KEY
+app.config['UPLOAD_FOLDER'] = app_config.UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = app_config.MAX_CONTENT_LENGTH
 
 # Extensiones de archivo permitidas
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'tiff', 'bmp'}
@@ -390,11 +396,17 @@ def predict(model_id):
 def get_models():
     """API endpoint para obtener información de los modelos disponibles"""
     return jsonify(MODELS_CONFIG)
-def get_models():
-    """API endpoint para obtener información de los modelos disponibles"""
-    return jsonify(MODELS_CONFIG)
 
 if __name__ == '__main__':
-    # Crear directorio de uploads si no existe
+    # Créer le répertoire uploads s'il n'existe pas
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    # Configuration selon l'environnement
+    config_name = os.environ.get('FLASK_ENV', 'development')
+    app_config = config.get(config_name, config['default'])
+    
+    app.run(
+        debug=app_config.DEBUG,
+        host=app_config.HOST,
+        port=app_config.PORT
+    )
